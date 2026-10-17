@@ -4,8 +4,15 @@ const { connect } = require('@tursodatabase/serverless');
 const cors = require('cors');
 
 const app = express();
+
+// Cấu hình CORS để cho phép trang Admin gọi API
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-admin-password']
+}));
+
 app.use(express.json());
-app.use(cors()); // Cho phép GitHub Pages gọi API
 
 // Kết nối Database Turso
 const db = connect({
@@ -13,7 +20,7 @@ const db = connect({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// Khởi tạo bảng không qua migration
+// Khởi tạo bảng
 async function initDB() {
   try {
     await db.batch([
