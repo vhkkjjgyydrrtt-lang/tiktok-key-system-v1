@@ -1,13 +1,19 @@
 const express = require('express');
-const { createClient } = require('@libsql/client');
+// Dùng bản /web để tránh lỗi migration trên Render
+const { createClient } = require('@libsql/client/web'); 
 const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
 
-// Kết nối Database Turso
+// Tự động đổi libsql:// thành https:// để bản /web hoạt động hoàn hảo
+let dbUrl = process.env.TURSO_DATABASE_URL || '';
+if (dbUrl.startsWith('libsql://')) {
+  dbUrl = dbUrl.replace('libsql://', 'https://');
+}
+
 const db = createClient({
-  url: process.env.TURSO_DATABASE_URL,
+  url: dbUrl,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
@@ -53,7 +59,7 @@ function adminAuth(req, res, next) {
   next();
 }
 
-// ============ CLIENT API ============
+// API Login
 app.post('/api/login', async (req, res) => {
   const { key, deviceId } = req.body;
   if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
@@ -76,12 +82,13 @@ app.post('/api/login', async (req, res) => {
     }
 
     res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
-  } catch (error) {
-    console.error(error);
-    res.json({ ok: false, error: 'Lỗi server' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: 'Lỗi Server' });
   }
 });
 
+// API Heartbeat
 app.post('/api/heartbeat', async (req, res) => {
   const { key, deviceId } = req.body;
   try {
@@ -90,20 +97,20 @@ app.post('/api/heartbeat', async (req, res) => {
     if (!row || row.revoked || row.device_id !== deviceId) return res.json({ ok: false });
     if (row.expires_at && Date.now() > row.expires_at) return res.json({ ok: false, reason: 'expired' });
     res.json({ ok: true, expiresAt: row.expires_at });
-  } catch (error) {
-    res.json({ ok: false });
+  } catch (e) {
+    res.status(500).json({ ok: false });
   }
 });
 
-// ============ ADMIN API ============
+// API Admin
 app.post('/admin/keys', adminAuth, async (req, res) => {
   const { durationHours, note } = req.body;
   const key = generateKey();
   try {
     await db.execute({ sql: 'INSERT INTO keys (key_value, duration_hours, created_at, note) VALUES (?,?,?,?)', args: [key, durationHours || null, Date.now(), note || null] });
     res.json({ ok: true, key, durationHours });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: 'Lỗi khi tạo key' });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'Lỗi tạo key' });
   }
 });
 
@@ -112,39 +119,26 @@ app.get('/admin/keys', adminAuth, async (req, res) => {
     const result = await db.execute('SELECT * FROM keys ORDER BY id DESC');
     const keys = result.rows.map(r => ({ ...r, status: keyStatus(r) }));
     res.json({ ok: true, keys });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: 'Lỗi khi tải danh sách key' });
+  } catch (e) {
+    res.status(500).json({ ok: false });
   }
 });
 
 app.post('/admin/keys/:id/revoke', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
 app.post('/admin/keys/:id/reset-device', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
 app.delete('/admin/keys/:id', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (error) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
-// Khởi chạy server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 API running on port ${PORT}`);
