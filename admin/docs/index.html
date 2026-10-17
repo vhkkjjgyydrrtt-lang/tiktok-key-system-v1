@@ -46,8 +46,8 @@
 </div>
 
 <script>
-// LƯU Ý: Tạm thời để localhost. Lát nữa có link Render bạn quay lại sửa sau.
-const API = 'http://localhost:3000'; 
+// ⚠️ SỬA DÒNG NÀY THÀNH LINK RENDER CỦA BẠN
+const API = 'https://tiktok-key-system-v1.onrender.com'; 
 let PWD = '';
 
 function login(){
@@ -56,7 +56,7 @@ function login(){
     .then(r=>r.json()).then(d=>{
       if(d.ok){document.getElementById('panel').style.display='block';loadKeys()}
       else alert('Sai mật khẩu admin!');
-    }).catch(e => alert('Không kết nối được tới server Backend!'));
+    }).catch(e => alert('Không kết nối được tới server Backend! (Có thể Render đang khởi động lại, đợi 30s rồi thử lại)'));
 }
 
 function createKey(){
