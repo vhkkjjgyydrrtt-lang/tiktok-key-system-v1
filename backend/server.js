@@ -1,16 +1,12 @@
 const express = require('express');
-const cors = require('cors'); // Thêm thư viện CORS
-const { createClient } = require('@libsql/client/web'); // Dùng bản /web để chạy trên Render
+const { connect } = require('@tursodatabase/serverless');
 const crypto = require('crypto');
 
 const app = express();
-
-// Cho phép trang Admin (chạy trên GitHub Pages) gọi API sang Render
-app.use(cors()); 
 app.use(express.json());
 
-// Kết nối Database Turso
-const db = createClient({
+// Kết nối Database Turso bằng driver Serverless
+const db = connect({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
@@ -31,7 +27,7 @@ async function initDB() {
         note TEXT
       );
     `);
-    console.log("✅ Kết nối Database và khởi tạo bảng thành công!");
+    console.log("✅ Kết nối Database Turso thành công!");
   } catch (error) {
     console.error("❌ Lỗi khởi tạo DB:", error);
   }
@@ -121,31 +117,19 @@ app.get('/admin/keys', adminAuth, async (req, res) => {
 });
 
 app.post('/admin/keys/:id/revoke', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
 app.post('/admin/keys/:id/reset-device', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
 app.delete('/admin/keys/:id', adminAuth, async (req, res) => {
-  try {
-    await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false });
-  }
+  await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
+  res.json({ ok: true });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
+app.listen(PORT, () => console.log(`API running on port ${PORT}`));
