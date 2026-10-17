@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const app = express();
 app.use(express.json());
 
-// Kết nối Database Turso bằng driver Serverless
+// Kết nối Database Turso
 const db = connect({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
@@ -27,7 +27,7 @@ async function initDB() {
         note TEXT
       );
     `);
-    console.log("✅ Kết nối Database Turso thành công!");
+    console.log("✅ Khởi tạo Database thành công!");
   } catch (error) {
     console.error("❌ Lỗi khởi tạo DB:", error);
   }
@@ -53,67 +53,52 @@ function adminAuth(req, res, next) {
   next();
 }
 
-// ============ CLIENT API ============
+// API Login
 app.post('/api/login', async (req, res) => {
   const { key, deviceId } = req.body;
   if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
 
-  try {
-    const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key.trim().toUpperCase()] });
-    const row = result.rows[0];
+  const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key.trim().toUpperCase()] });
+  const row = result.rows[0];
 
-    if (!row) return res.json({ ok: false, error: 'Bạn đã nhập sai key hoặc không có key đó' });
-    if (row.revoked) return res.json({ ok: false, error: 'Key đã bị thu hồi' });
+  if (!row) return res.json({ ok: false, error: 'Bạn đã nhập sai key hoặc không có key đó' });
+  if (row.revoked) return res.json({ ok: false, error: 'Key đã bị thu hồi' });
 
-    const now = Date.now();
-    if (row.expires_at && now > row.expires_at) return res.json({ ok: false, error: 'Key đã hết hạn' });
-    if (row.device_id && row.device_id !== deviceId) return res.json({ ok: false, error: 'Key đã được dùng trên thiết bị khác' });
+  const now = Date.now();
+  if (row.expires_at && now > row.expires_at) return res.json({ ok: false, error: 'Key đã hết hạn' });
+  if (row.device_id && row.device_id !== deviceId) return res.json({ ok: false, error: 'Key đã được dùng trên thiết bị khác' });
 
-    if (!row.activated_at) {
-      const expiresAt = row.duration_hours ? now + row.duration_hours * 3600 * 1000 : null;
-      await db.execute({ sql: 'UPDATE keys SET device_id=?, activated_at=?, expires_at=? WHERE id=?', args: [deviceId, now, expiresAt, row.id] });
-      return res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt });
-    }
-
-    res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'Lỗi server' });
+  if (!row.activated_at) {
+    const expiresAt = row.duration_hours ? now + row.duration_hours * 3600 * 1000 : null;
+    await db.execute({ sql: 'UPDATE keys SET device_id=?, activated_at=?, expires_at=? WHERE id=?', args: [deviceId, now, expiresAt, row.id] });
+    return res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt });
   }
+
+  res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
 });
 
+// API Heartbeat
 app.post('/api/heartbeat', async (req, res) => {
   const { key, deviceId } = req.body;
-  try {
-    const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key] });
-    const row = result.rows[0];
-    if (!row || row.revoked || row.device_id !== deviceId) return res.json({ ok: false });
-    if (row.expires_at && Date.now() > row.expires_at) return res.json({ ok: false, reason: 'expired' });
-    res.json({ ok: true, expiresAt: row.expires_at });
-  } catch (e) {
-    res.status(500).json({ ok: false });
-  }
+  const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key] });
+  const row = result.rows[0];
+  if (!row || row.revoked || row.device_id !== deviceId) return res.json({ ok: false });
+  if (row.expires_at && Date.now() > row.expires_at) return res.json({ ok: false, reason: 'expired' });
+  res.json({ ok: true, expiresAt: row.expires_at });
 });
 
-// ============ ADMIN API ============
+// API Admin
 app.post('/admin/keys', adminAuth, async (req, res) => {
   const { durationHours, note } = req.body;
   const key = generateKey();
-  try {
-    await db.execute({ sql: 'INSERT INTO keys (key_value, duration_hours, created_at, note) VALUES (?,?,?,?)', args: [key, durationHours || null, Date.now(), note || null] });
-    res.json({ ok: true, key, durationHours });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'Lỗi tạo key' });
-  }
+  await db.execute({ sql: 'INSERT INTO keys (key_value, duration_hours, created_at, note) VALUES (?,?,?,?)', args: [key, durationHours || null, Date.now(), note || null] });
+  res.json({ ok: true, key, durationHours });
 });
 
 app.get('/admin/keys', adminAuth, async (req, res) => {
-  try {
-    const result = await db.execute('SELECT * FROM keys ORDER BY id DESC');
-    const keys = result.rows.map(r => ({ ...r, status: keyStatus(r) }));
-    res.json({ ok: true, keys });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'Lỗi lấy danh sách key' });
-  }
+  const result = await db.execute('SELECT * FROM keys ORDER BY id DESC');
+  const keys = result.rows.map(r => ({ ...r, status: keyStatus(r) }));
+  res.json({ ok: true, keys });
 });
 
 app.post('/admin/keys/:id/revoke', adminAuth, async (req, res) => {
@@ -131,5 +116,5 @@ app.delete('/admin/keys/:id', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`API running on port ${PORT}`));
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
