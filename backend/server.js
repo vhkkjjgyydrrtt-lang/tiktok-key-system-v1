@@ -1,23 +1,17 @@
 const express = require('express');
-// Dùng bản /web để tránh lỗi migration trên Render
-const { createClient } = require('@libsql/client/web'); 
+const { createClient } = require('@libsql/client/web');
 const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
 
-// Tự động đổi libsql:// thành https:// để bản /web hoạt động hoàn hảo
-let dbUrl = process.env.TURSO_DATABASE_URL || '';
-if (dbUrl.startsWith('libsql://')) {
-  dbUrl = dbUrl.replace('libsql://', 'https://');
-}
-
+// Kết nối Database Turso
 const db = createClient({
-  url: dbUrl,
+  url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// Khởi tạo bảng
+// Khởi tạo bảng (Dùng try/catch để không crash app nếu lỗi)
 async function initDB() {
   try {
     await db.execute(`
@@ -35,11 +29,12 @@ async function initDB() {
     `);
     console.log("✅ Khởi tạo Database thành công!");
   } catch (error) {
-    console.error("❌ Lỗi khởi tạo DB:", error);
+    console.error("❌ Lỗi khởi tạo DB (Vui lòng kiểm tra lại URL/Token):", error.message);
   }
 }
 initDB();
 
+// Các hàm bổ trợ
 function generateKey() {
   const raw = crypto.randomBytes(12).toString('hex').toUpperCase();
   return raw.match(/.{1,4}/g).join('-');
@@ -59,12 +54,12 @@ function adminAuth(req, res, next) {
   next();
 }
 
-// API Login
+// ============ CLIENT API ============
 app.post('/api/login', async (req, res) => {
-  const { key, deviceId } = req.body;
-  if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
-
   try {
+    const { key, deviceId } = req.body;
+    if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
+
     const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key.trim().toUpperCase()] });
     const row = result.rows[0];
 
@@ -82,35 +77,33 @@ app.post('/api/login', async (req, res) => {
     }
 
     res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: 'Lỗi Server' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-// API Heartbeat
 app.post('/api/heartbeat', async (req, res) => {
-  const { key, deviceId } = req.body;
   try {
+    const { key, deviceId } = req.body;
     const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key] });
     const row = result.rows[0];
     if (!row || row.revoked || row.device_id !== deviceId) return res.json({ ok: false });
     if (row.expires_at && Date.now() > row.expires_at) return res.json({ ok: false, reason: 'expired' });
     res.json({ ok: true, expiresAt: row.expires_at });
-  } catch (e) {
-    res.status(500).json({ ok: false });
+  } catch (error) {
+    res.json({ ok: false });
   }
 });
 
-// API Admin
+// ============ ADMIN API ============
 app.post('/admin/keys', adminAuth, async (req, res) => {
-  const { durationHours, note } = req.body;
-  const key = generateKey();
   try {
+    const { durationHours, note } = req.body;
+    const key = generateKey();
     await db.execute({ sql: 'INSERT INTO keys (key_value, duration_hours, created_at, note) VALUES (?,?,?,?)', args: [key, durationHours || null, Date.now(), note || null] });
     res.json({ ok: true, key, durationHours });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: 'Lỗi tạo key' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
@@ -119,26 +112,39 @@ app.get('/admin/keys', adminAuth, async (req, res) => {
     const result = await db.execute('SELECT * FROM keys ORDER BY id DESC');
     const keys = result.rows.map(r => ({ ...r, status: keyStatus(r) }));
     res.json({ ok: true, keys });
-  } catch (e) {
-    res.status(500).json({ ok: false });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
   }
 });
 
 app.post('/admin/keys/:id/revoke', adminAuth, async (req, res) => {
-  await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
-  res.json({ ok: true });
+  try {
+    await db.execute({ sql: 'UPDATE keys SET revoked=1 WHERE id=?', args: [req.params.id] });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 app.post('/admin/keys/:id/reset-device', adminAuth, async (req, res) => {
-  await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
-  res.json({ ok: true });
+  try {
+    await db.execute({ sql: 'UPDATE keys SET device_id=NULL WHERE id=?', args: [req.params.id] });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 app.delete('/admin/keys/:id', adminAuth, async (req, res) => {
-  await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
-  res.json({ ok: true });
+  try {
+    await db.execute({ sql: 'DELETE FROM keys WHERE id=?', args: [req.params.id] });
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
+// Chạy server
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 API running on port ${PORT}`);
