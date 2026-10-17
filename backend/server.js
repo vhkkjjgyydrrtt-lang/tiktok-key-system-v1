@@ -1,6 +1,5 @@
 const express = require('express');
 const crypto = require('crypto');
-// Sử dụng driver serverless chính thức của Turso
 const { connect } = require('@tursodatabase/serverless');
 
 const app = express();
@@ -12,7 +11,7 @@ const db = connect({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// Khởi tạo bảng bằng batch, không qua cơ chế migration
+// Khởi tạo bảng (dùng batch để tránh lỗi migration 400)
 async function initDB() {
   try {
     await db.batch([
