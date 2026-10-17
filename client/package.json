@@ -1,0 +1,22 @@
+{
+  "name": "tiktok-live-finder",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.tiktok.finder",
+    "win": {
+      "target": "nsis"
+    }
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "node-machine-id": "^1.1.12"
+  }
+}
