@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"><title>Admin - Quản lý Key</title>
+<style>
+  body{font-family:sans-serif;max-width:1000px;margin:20px auto;padding:0 20px}
+  input,select,button{padding:8px;margin:4px}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:14px}
+  th{background:#222;color:#fff}
+  .ok{color:green}.err{color:red}.revoked{background:#ffe0e0}
+  .active{color:green;font-weight:bold}
+  .expired{color:gray}
+  .unused{color:orange}
+</style>
+</head>
+<body>
+<h2>🔑 Quản lý Key - TikTok App</h2>
+
+<input id="pwd" type="password" placeholder="Mật khẩu admin">
+<button onclick="login()">Đăng nhập</button>
+
+<div id="panel" style="display:none">
+  <h3>Tạo key mới</h3>
+  <select id="dur">
+    <option value="1">1 giờ</option>
+    <option value="5">5 giờ</option>
+    <option value="10">10 giờ</option>
+    <option value="24">24 giờ</option>
+    <option value="168">168 giờ (7 ngày)</option>
+    <option value="">Vĩnh viễn</option>
+  </select>
+  <input id="note" placeholder="Ghi chú (tên khách...)">
+  <button onclick="createKey()">Tạo Key</button>
+  <div id="newKey" style="margin-top:10px;"></div>
+
+  <h3>Danh sách key</h3>
+  <button onclick="loadKeys()">🔄 Tải lại danh sách</button>
+  <table id="tbl">
+    <thead><tr>
+      <th>Key</th><th>Trạng thái</th><th>Thời hạn</th>
+      <th>Thiết bị</th><th>Hết hạn</th><th>Hành động</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+// LƯU Ý: Tạm thời để localhost. Lát nữa có link Render bạn quay lại sửa sau.
+const API = 'http://localhost:3000'; 
+let PWD = '';
+
+function login(){
+  PWD = document.getElementById('pwd').value;
+  fetch(API+'/admin/keys',{headers:{'x-admin-password':PWD}})
+    .then(r=>r.json()).then(d=>{
+      if(d.ok){document.getElementById('panel').style.display='block';loadKeys()}
+      else alert('Sai mật khẩu admin!');
+    }).catch(e => alert('Không kết nối được tới server Backend!'));
+}
+
+function createKey(){
+  const dur = document.getElementById('dur').value;
+  const note = document.getElementById('note').value;
+  fetch(API+'/admin/keys',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-admin-password':PWD},
+    body:JSON.stringify({durationHours: dur?parseInt(dur):null, note})
+  }).then(r=>r.json()).then(d=>{
+    document.getElementById('newKey').innerHTML = 
+      `<p class="ok">✅ Đã tạo key: <b style="font-size:18px; color:red">${d.key}</b></p>`;
+    loadKeys();
+  });
+}
+
+function loadKeys(){
+  fetch(API+'/admin/keys',{headers:{'x-admin-password':PWD}})
+    .then(r=>r.json()).then(d=>{
+      const tb = document.querySelector('#tbl tbody');
+      tb.innerHTML = d.keys.map(k=>{
+        const label = {active:'✅ Hoạt động',unused:'⏳ Chưa dùng',
+                       expired:'⌛ Hết hạn',revoked:'🚫 Thu hồi'}[k.status];
+        const durLabel = k.duration_hours ? k.duration_hours+'h' : 'Vĩnh viễn';
+        const exp = k.expires_at ? new Date(k.expires_at).toLocaleString('vi') : '—';
+        return `<tr class="${k.revoked?'revoked':''}">
+          <td><code>${k.key_value}</code></td>
+          <td class="${k.status}">${label}</td>
+          <td>${durLabel}</td>
+          <td>${k.device_id ? k.device_id.slice(0,12)+'...' : '—'}</td>
+          <td>${exp}</td>
+          <td>
+            ${!k.revoked?`<button onclick="act(${k.id},'revoke')">Thu hồi</button>`:''}
+            <button onclick="act(${k.id},'reset-device')">Reset máy</button>
+            <button onclick="del(${k.id})">Xoá</button>
+          </td>
+        </tr>`;
+      }).join('');
+    });
+}
+
+function act(id,action){
+  fetch(`${API}/admin/keys/${id}/${action}`,{method:'POST',headers:{'x-admin-password':PWD}})
+    .then(()=>loadKeys());
+}
+function del(id){
+  if(!confirm('Xoá key này?'))return;
+  fetch(`${API}/admin/keys/${id}`,{method:'DELETE',headers:{'x-admin-password':PWD}})
+    .then(()=>loadKeys());
+}
+</script>
+</body>
+</html>
