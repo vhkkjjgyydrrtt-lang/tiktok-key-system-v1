@@ -1,111 +1,120 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-<meta charset="UTF-8"><title>Admin - Quản lý Key</title>
+<meta charset="UTF-8">
+<title>TikTok Live Finder</title>
 <style>
-  body{font-family:sans-serif;max-width:1000px;margin:20px auto;padding:0 20px}
-  input,select,button{padding:8px;margin:4px}
-  table{width:100%;border-collapse:collapse;margin-top:16px}
-  th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:14px}
-  th{background:#222;color:#fff}
-  .ok{color:green}.err{color:red}.revoked{background:#ffe0e0}
-  .active{color:green;font-weight:bold}
-  .expired{color:gray}
-  .unused{color:orange}
+  body{margin:0;font-family:sans-serif;background:#111;color:#eee}
+  #login{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  #login input{padding:12px;width:320px;font-size:16px;text-align:center;letter-spacing:2px;border-radius:8px;border:1px solid #444;background:#222;color:#fff}
+  #login button{padding:12px 32px;font-size:16px;cursor:pointer;background:#fe2c55;color:#fff;border:none;border-radius:8px}
+  #msg{margin-top:8px;font-size:14px;min-height:20px}
+  #app{display:none;height:100vh;flex-direction:column}
+  #toolbar{background:#222;padding:8px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #333}
+  #toolbar button{padding:6px 12px;background:#333;color:#fff;border:1px solid #555;border-radius:6px;cursor:pointer}
+  #viewer{flex:1;width:100%;border:none;}
+  #status{font-size:12px;color:#aaa;margin-left:auto;margin-right:12px}
+  .good{color:#4caf50}.bad{color:#f44336}
 </style>
 </head>
 <body>
-<h2>🔑 Quản lý Key - TikTok App</h2>
+<div id="login">
+  <h2>🔑 Nhập Key để vào App</h2>
+  <input id="keyInput" placeholder="XXXX-XXXX-XXXX-XXXX" />
+  <button id="btnLogin" onclick="handleLogin()">Đăng nhập</button>
+  <div id="msg"></div>
+</div>
 
-<input id="pwd" type="password" placeholder="Mật khẩu admin">
-<button onclick="login()">Đăng nhập</button>
-
-<div id="panel" style="display:none">
-  <h3>Tạo key mới</h3>
-  <select id="dur">
-    <option value="1">1 giờ</option>
-    <option value="5">5 giờ</option>
-    <option value="10">10 giờ</option>
-    <option value="24">24 giờ</option>
-    <option value="168">168 giờ (7 ngày)</option>
-    <option value="">Vĩnh viễn</option>
-  </select>
-  <input id="note" placeholder="Ghi chú (tên khách...)">
-  <button onclick="createKey()">Tạo Key</button>
-  <div id="newKey" style="margin-top:10px;"></div>
-
-  <h3>Danh sách key</h3>
-  <button onclick="loadKeys()">🔄 Tải lại danh sách</button>
-  <table id="tbl">
-    <thead><tr>
-      <th>Key</th><th>Trạng thái</th><th>Thời hạn</th>
-      <th>Thiết bị</th><th>Hết hạn</th><th>Hành động</th>
-    </tr></thead>
-    <tbody></tbody>
-  </table>
+<div id="app">
+  <div id="toolbar">
+    <button onclick="findNext()">🔍 Tìm live có rương</button>
+    <button onclick="reloadViewer()">🔄 Reload</button>
+    <button onclick="logout()">🚪 Đăng xuất</button>
+    <span id="status"></span>
+  </div>
+  <iframe id="viewer" src="about:blank"></iframe>
 </div>
 
 <script>
-// Link API Render của bạn
-const API = 'https://tiktok-key-system-v1.onrender.com'; 
-let PWD = '';
+let currentKey = null;
+let heartbeatTimer = null;
+let scanTimer = null;
+const $ = id => document.getElementById(id);
 
-function login(){
-  PWD = document.getElementById('pwd').value;
-  fetch(API+'/admin/keys',{headers:{'x-admin-password':PWD}})
-    .then(r=>r.json()).then(d=>{
-      if(d.ok){document.getElementById('panel').style.display='block';loadKeys()}
-      else alert('Sai mật khẩu admin!');
-    }).catch(e => alert('Không kết nối được tới server Backend! Vui lòng đợi 30s và thử lại.'));
+async function handleLogin() {
+  const key = $('keyInput').value.trim();
+  if (!key) return showMsg('Vui lòng nhập key', false);
+
+  showMsg('Đang kiểm tra...', true);
+  const res = await window.api.login(key);
+
+  if (!res.ok) return showMsg('❌ ' + res.error, false);
+
+  showMsg('✅ ' + res.message, true);
+  currentKey = key;
+  setTimeout(() => enterApp(), 600);
 }
 
-function createKey(){
-  const dur = document.getElementById('dur').value;
-  const note = document.getElementById('note').value;
-  fetch(API+'/admin/keys',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-admin-password':PWD},
-    body:JSON.stringify({durationHours: dur?parseInt(dur):null, note})
-  }).then(r=>r.json()).then(d=>{
-    document.getElementById('newKey').innerHTML = 
-      `<p class="ok">✅ Đã tạo key: <b style="font-size:18px; color:red">${d.key}</b></p>`;
-    loadKeys();
-  });
+function showMsg(t, ok) {
+  $('msg').innerHTML = `<span class="${ok?'good':'bad'}">${t}</span>`;
 }
 
-function loadKeys(){
-  fetch(API+'/admin/keys',{headers:{'x-admin-password':PWD}})
-    .then(r=>r.json()).then(d=>{
-      const tb = document.querySelector('#tbl tbody');
-      tb.innerHTML = d.keys.map(k=>{
-        const label = {active:'✅ Hoạt động',unused:'⏳ Chưa dùng',
-                       expired:'⌛ Hết hạn',revoked:'🚫 Thu hồi'}[k.status];
-        const durLabel = k.duration_hours ? k.duration_hours+'h' : 'Vĩnh viễn';
-        const exp = k.expires_at ? new Date(k.expires_at).toLocaleString('vi') : '—';
-        return `<tr class="${k.revoked?'revoked':''}">
-          <td><code>${k.key_value}</code></td>
-          <td class="${k.status}">${label}</td>
-          <td>${durLabel}</td>
-          <td>${k.device_id ? k.device_id.slice(0,12)+'...' : '—'}</td>
-          <td>${exp}</td>
-          <td>
-            ${!k.revoked?`<button onclick="act(${k.id},'revoke')">Thu hồi</button>`:''}
-            <button onclick="act(${k.id},'reset-device')">Reset máy</button>
-            <button onclick="del(${k.id})">Xoá</button>
-          </td>
-        </tr>`;
-      }).join('');
-    });
+function enterApp() {
+  $('login').style.display = 'none';
+  $('app').style.display = 'flex';
+  startHeartbeat();
+  startScanning();
 }
 
-function act(id,action){
-  fetch(`${API}/admin/keys/${id}/${action}`,{method:'POST',headers:{'x-admin-password':PWD}})
-    .then(()=>loadKeys());
+function startHeartbeat() {
+  heartbeatTimer = setInterval(async () => {
+    const res = await window.api.heartbeat(currentKey);
+    if (!res.ok) {
+      alert('Key đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.');
+      logout();
+    } else {
+      const left = res.expiresAt
+        ? Math.max(0, Math.floor((res.expiresAt - Date.now())/60000)) + ' phút còn lại'
+        : 'Vĩnh viễn';
+      $('status').textContent = '⏱ ' + left;
+    }
+  }, 60000);
 }
-function del(id){
-  if(!confirm('Xoá key này?'))return;
-  fetch(`${API}/admin/keys/${id}`,{method:'DELETE',headers:{'x-admin-password':PWD}})
-    .then(()=>loadKeys());
+
+const STREAMER_LIST = ["tiktok", "vietnam", "streamer2"]; 
+let currentIndex = 0;
+
+async function findLiveWithChest() {
+  if (STREAMER_LIST.length === 0) return null;
+  const streamer = STREAMER_LIST[currentIndex % STREAMER_LIST.length];
+  currentIndex++;
+  return `https://www.tiktok.com/@${streamer}/live`;
+}
+
+function startScanning() {
+  scanTimer = setInterval(async () => {
+    const url = await findLiveWithChest();
+    if (url && $('viewer').src !== url) {
+      $('viewer').src = url;
+    }
+  }, 30000);
+}
+
+function findNext() {
+  $('viewer').src = 'about:blank';
+  startScanning();
+}
+function reloadViewer() { $('viewer').src = $('viewer').src; }
+
+function logout() {
+  clearInterval(heartbeatTimer);
+  clearInterval(scanTimer);
+  currentKey = null;
+  $('app').style.display = 'none';
+  $('login').style.display = 'flex';
+  $('keyInput').value = '';
+  $('msg').textContent = '';
+  $('viewer').src = 'about:blank';
 }
 </script>
 </body>
