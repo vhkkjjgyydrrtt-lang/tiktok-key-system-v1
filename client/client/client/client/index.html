@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>TikTok Live Finder</title>
+<style>
+  body{margin:0;font-family:sans-serif;background:#111;color:#eee}
+  #login{height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+  #login input{padding:12px;width:320px;font-size:16px;text-align:center;letter-spacing:2px;border-radius:8px;border:1px solid #444;background:#222;color:#fff}
+  #login button{padding:12px 32px;font-size:16px;cursor:pointer;background:#fe2c55;color:#fff;border:none;border-radius:8px}
+  #msg{margin-top:8px;font-size:14px;min-height:20px}
+  #app{display:none;height:100vh;flex-direction:column}
+  #toolbar{background:#222;padding:8px;display:flex;gap:8px;align-items:center;border-bottom:1px solid #333}
+  #toolbar button{padding:6px 12px;background:#333;color:#fff;border:1px solid #555;border-radius:6px;cursor:pointer}
+  #viewer{flex:1;width:100%;border:none;}
+  #status{font-size:12px;color:#aaa;margin-left:auto;margin-right:12px}
+  .good{color:#4caf50}.bad{color:#f44336}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h2>🔑 Nhập Key để vào App</h2>
+  <input id="keyInput" placeholder="XXXX-XXXX-XXXX-XXXX" />
+  <button id="btnLogin" onclick="handleLogin()">Đăng nhập</button>
+  <div id="msg"></div>
+</div>
+
+<div id="app">
+  <div id="toolbar">
+    <button onclick="findNext()">🔍 Tìm live có rương</button>
+    <button onclick="reloadViewer()">🔄 Reload</button>
+    <button onclick="logout()">🚪 Đăng xuất</button>
+    <span id="status"></span>
+  </div>
+  <iframe id="viewer" src="about:blank"></iframe>
+</div>
+
+<script>
+let currentKey = null;
+let heartbeatTimer = null;
+let scanTimer = null;
+const $ = id => document.getElementById(id);
+
+async function handleLogin() {
+  const key = $('keyInput').value.trim();
+  if (!key) return showMsg('Vui lòng nhập key', false);
+
+  showMsg('Đang kiểm tra...', true);
+  const res = await window.api.login(key);
+
+  if (!res.ok) return showMsg('❌ ' + res.error, false);
+
+  showMsg('✅ ' + res.message, true);
+  currentKey = key;
+  setTimeout(() => enterApp(), 600);
+}
+
+function showMsg(t, ok) {
+  $('msg').innerHTML = `<span class="${ok?'good':'bad'}">${t}</span>`;
+}
+
+function enterApp() {
+  $('login').style.display = 'none';
+  $('app').style.display = 'flex';
+  startHeartbeat();
+  startScanning();
+}
+
+function startHeartbeat() {
+  heartbeatTimer = setInterval(async () => {
+    const res = await window.api.heartbeat(currentKey);
+    if (!res.ok) {
+      alert('Key đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.');
+      logout();
+    } else {
+      const left = res.expiresAt
+        ? Math.max(0, Math.floor((res.expiresAt - Date.now())/60000)) + ' phút còn lại'
+        : 'Vĩnh viễn';
+      $('status').textContent = '⏱ ' + left;
+    }
+  }, 60000);
+}
+
+const STREAMER_LIST = ["tiktok", "vietnam", "streamer2"]; 
+let currentIndex = 0;
+
+async function findLiveWithChest() {
+  if (STREAMER_LIST.length === 0) return null;
+  const streamer = STREAMER_LIST[currentIndex % STREAMER_LIST.length];
+  currentIndex++;
+  return `https://www.tiktok.com/@${streamer}/live`;
+}
+
+function startScanning() {
+  scanTimer = setInterval(async () => {
+    const url = await findLiveWithChest();
+    if (url && $('viewer').src !== url) {
+      $('viewer').src = url;
+    }
+  }, 30000);
+}
+
+function findNext() {
+  $('viewer').src = 'about:blank';
+  startScanning();
+}
+function reloadViewer() { $('viewer').src = $('viewer').src; }
+
+function logout() {
+  clearInterval(heartbeatTimer);
+  clearInterval(scanTimer);
+  currentKey = null;
+  $('app').style.display = 'none';
+  $('login').style.display = 'flex';
+  $('keyInput').value = '';
+  $('msg').textContent = '';
+  $('viewer').src = 'about:blank';
+}
+</script>
+</body>
+</html>
