@@ -11,7 +11,7 @@ const db = connect({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// Khởi tạo bảng (dùng batch để tránh lỗi migration 400)
+// Khởi tạo bảng bằng batch (Tránh hoàn toàn lỗi migration 400)
 async function initDB() {
   try {
     await db.batch([
@@ -53,7 +53,7 @@ function adminAuth(req, res, next) {
   next();
 }
 
-// API Login
+// ============ CLIENT API ============
 app.post('/api/login', async (req, res) => {
   const { key, deviceId } = req.body;
   if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
@@ -77,7 +77,6 @@ app.post('/api/login', async (req, res) => {
   res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
 });
 
-// API Heartbeat
 app.post('/api/heartbeat', async (req, res) => {
   const { key, deviceId } = req.body;
   const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key] });
@@ -87,7 +86,7 @@ app.post('/api/heartbeat', async (req, res) => {
   res.json({ ok: true, expiresAt: row.expires_at });
 });
 
-// API Admin
+// ============ ADMIN API ============
 app.post('/admin/keys', adminAuth, async (req, res) => {
   const { durationHours, note } = req.body;
   const key = generateKey();
