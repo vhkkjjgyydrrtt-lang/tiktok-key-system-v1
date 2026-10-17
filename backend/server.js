@@ -1,9 +1,11 @@
 const express = require('express');
 const crypto = require('crypto');
 const { connect } = require('@tursodatabase/serverless');
+const cors = require('cors');
 
 const app = express();
 app.use(express.json());
+app.use(cors()); // Cho phép GitHub Pages gọi API
 
 // Kết nối Database Turso
 const db = connect({
@@ -11,7 +13,7 @@ const db = connect({
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
-// Khởi tạo bảng bằng batch (Tránh hoàn toàn lỗi migration 400)
+// Khởi tạo bảng không qua migration
 async function initDB() {
   try {
     await db.batch([
@@ -27,7 +29,7 @@ async function initDB() {
         note TEXT
       );`
     ]);
-    console.log("✅ Khởi tạo Database thành công (không qua migration)!");
+    console.log("✅ Khởi tạo Database thành công!");
   } catch (error) {
     console.error("❌ Lỗi khởi tạo DB:", error);
   }
@@ -53,7 +55,7 @@ function adminAuth(req, res, next) {
   next();
 }
 
-// ============ CLIENT API ============
+// API Login
 app.post('/api/login', async (req, res) => {
   const { key, deviceId } = req.body;
   if (!key || !deviceId) return res.json({ ok: false, error: 'Thiếu thông tin' });
@@ -77,6 +79,7 @@ app.post('/api/login', async (req, res) => {
   res.json({ ok: true, message: 'Đăng nhập thành công', expiresAt: row.expires_at });
 });
 
+// API Heartbeat
 app.post('/api/heartbeat', async (req, res) => {
   const { key, deviceId } = req.body;
   const result = await db.execute({ sql: 'SELECT * FROM keys WHERE key_value = ?', args: [key] });
@@ -86,7 +89,7 @@ app.post('/api/heartbeat', async (req, res) => {
   res.json({ ok: true, expiresAt: row.expires_at });
 });
 
-// ============ ADMIN API ============
+// API Admin
 app.post('/admin/keys', adminAuth, async (req, res) => {
   const { durationHours, note } = req.body;
   const key = generateKey();
