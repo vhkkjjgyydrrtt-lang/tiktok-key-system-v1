@@ -1,12 +1,12 @@
 const express = require('express');
-const { connect } = require('@tursodatabase/serverless');
+const { createClient } = require('@libsql/client'); // Sử dụng @libsql/client
 const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
 
 // Kết nối Database Turso
-const db = connect({
+const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
